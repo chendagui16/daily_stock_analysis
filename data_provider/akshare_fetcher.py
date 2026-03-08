@@ -42,7 +42,7 @@ from tenacity import (
 
 from patch.eastmoney_patch import eastmoney_patch
 from src.config import get_config
-from .base import BaseFetcher, DataFetchError, RateLimitError, STANDARD_COLUMNS
+from .base import BaseFetcher, DataFetchError, RateLimitError, STANDARD_COLUMNS, is_bse_code
 from .realtime_types import (
     UnifiedRealtimeQuote, ChipDistribution, RealtimeSource,
     get_realtime_circuit_breaker, get_chip_circuit_breaker,
@@ -130,6 +130,21 @@ def _is_hk_code(stock_code: str) -> bool:
     return code.isdigit() and len(code) == 5
 
 
+def is_hk_stock_code(stock_code: str) -> bool:
+    """
+    Public API: determine if a stock code is a Hong Kong stock.
+
+    Delegates to _is_hk_code for internal compatibility.
+
+    Args:
+        stock_code: Stock code (e.g. '00700', 'hk00700')
+
+    Returns:
+        True if HK stock, False otherwise
+    """
+    return _is_hk_code(stock_code)
+
+
 def _is_us_code(stock_code: str) -> bool:
     """
     判断代码是否为美股股票（不包括美股指数）。
@@ -153,6 +168,17 @@ def _is_us_code(stock_code: str) -> bool:
         False
     """
     return is_us_stock_code(stock_code)
+
+
+def _to_sina_tx_symbol(stock_code: str) -> str:
+    """Convert 6-digit A-share code to sh/sz/bj prefixed symbol for Sina/Tencent APIs."""
+    base = (stock_code.strip().split(".")[0] if "." in stock_code else stock_code).strip()
+    if is_bse_code(base):
+        return f"bj{base}"
+    # Shanghai: 60xxxx, 5xxxx (ETF), 90xxxx (B-shares)
+    if base.startswith(("6", "5", "90")):
+        return f"sh{base}"
+    return f"sz{base}"
 
 
 class AkshareFetcher(BaseFetcher):
@@ -343,11 +369,8 @@ class AkshareFetcher(BaseFetcher):
         """
         import akshare as ak
 
-        # 转换代码格式：sh600000, sz000001
-        if stock_code.startswith(('6', '5', '9')):
-            symbol = f"sh{stock_code}"
-        else:
-            symbol = f"sz{stock_code}"
+        # 转换代码格式：sh600000, sz000001, bj920748
+        symbol = _to_sina_tx_symbol(stock_code)
 
         self._enforce_rate_limit()
 
@@ -392,11 +415,8 @@ class AkshareFetcher(BaseFetcher):
         """
         import akshare as ak
 
-        # 转换代码格式：sh600000, sz000001
-        if stock_code.startswith(('6', '5', '9')):
-            symbol = f"sh{stock_code}"
-        else:
-            symbol = f"sz{stock_code}"
+        # 转换代码格式：sh600000, sz000001, bj920748
+        symbol = _to_sina_tx_symbol(stock_code)
 
         self._enforce_rate_limit()
 
@@ -848,10 +868,7 @@ class AkshareFetcher(BaseFetcher):
             import requests
             
             # 判断市场前缀
-            if stock_code.startswith(('6', '5', '9')):
-                symbol = f"sh{stock_code}"
-            else:
-                symbol = f"sz{stock_code}"
+            symbol = _to_sina_tx_symbol(stock_code)
             
             url = f"http://hq.sinajs.cn/list={symbol}"
             headers = {
@@ -946,10 +963,7 @@ class AkshareFetcher(BaseFetcher):
             import requests
             
             # 判断市场前缀
-            if stock_code.startswith(('6', '5', '9')):
-                symbol = f"sh{stock_code}"
-            else:
-                symbol = f"sz{stock_code}"
+            symbol = _to_sina_tx_symbol(stock_code)
             
             url = f"http://qt.gtimg.cn/q={symbol}"
             headers = {
